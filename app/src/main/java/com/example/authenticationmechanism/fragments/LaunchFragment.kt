@@ -26,6 +26,7 @@ class LaunchFragment : Fragment() {
     private lateinit var biometricManager: BiometricManager
     private lateinit var biometricPrompt: BiometricPrompt
     private lateinit var executor: Executor
+    private var canPrompt = -1
 
     private val promptInfo = BiometricPrompt.PromptInfo.Builder()
         .setTitle("Use fingerprint to unlock")
@@ -43,9 +44,6 @@ class LaunchFragment : Fragment() {
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
             super.onAuthenticationError(errorCode, errString)
             showToast("$errString")
-            if(errorCode == AUTH_CANCELLED_BY_USER){
-                biometricPrompt.authenticate(promptInfo)
-            }
         }
 
         override fun onAuthenticationFailed() {
@@ -71,11 +69,11 @@ class LaunchFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         biometricManager = BiometricManager.from(requireContext())
         executor = ContextCompat.getMainExecutor(requireContext())
-        canAuthenticateViaBiometric()
         biometricPrompt = BiometricPrompt(requireActivity(), executor, biometricAuthCallback)
 
         binding.authenticate.setOnClickListener {
-            biometricPrompt.authenticate(promptInfo)
+            canAuthenticateViaBiometric()
+            if(canPrompt == 0) biometricPrompt.authenticate(promptInfo)
         }
     }
 
@@ -85,6 +83,7 @@ class LaunchFragment : Fragment() {
         when (biometricManager.canAuthenticate(BIOMETRIC_STRONG)) {
             BiometricManager.BIOMETRIC_SUCCESS -> {
                 showToast("Success")
+                canPrompt = 0
             }
             BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> showToast("No hardware")
             BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> showToast("Hardware unavailable")
