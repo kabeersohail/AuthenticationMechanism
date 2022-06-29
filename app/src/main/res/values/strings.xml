@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">AuthenticationMechanism</string>
+    <string name="sensitive_screen">Sensitive screen</string>
+    <string name="launch_screen">Launch screen</string>
+    <string name="authenticate">Authenticate</string>
+    <string name="negative_button_text"><![CDATA[<font color=\'#48a134\'>Your text at given color</font>]]></string>
+
+</resources>
