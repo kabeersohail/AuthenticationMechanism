@@ -36,11 +36,8 @@ class LaunchFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         val keyguardManager = requireActivity().getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-        val intent: Intent? = try {
-            keyguardManager.createConfirmDeviceCredentialIntent("Enter phone screen lock pattern, PIN, password or fingerprint", "to proceed")
-        } catch (e: Exception){
-            null
-        }
+        val intent: Intent? = keyguardManager.createConfirmDeviceCredentialIntent("Enter phone screen lock pattern, PIN, password or fingerprint", "to proceed")
+
 
         binding.authenticate.setOnClickListener {
             if(intent!=null){
