@@ -3,9 +3,12 @@ package com.example.authenticationmechanism.fragments
 import android.app.Activity
 import android.app.KeyguardManager
 import android.app.admin.DevicePolicyManager
+import android.content.ActivityNotFoundException
 import android.content.Context.KEYGUARD_SERVICE
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
+import android.provider.Settings.ACTION_SECURITY_SETTINGS
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -34,44 +37,54 @@ class LaunchFragment : Fragment() {
         .setAllowedAuthenticators(DEVICE_CREDENTIAL or BIOMETRIC_STRONG or BIOMETRIC_WEAK)
         .build()
 
-    private val unlockResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
+    private val unlockResult =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
+            if (activityResult.resultCode == Activity.RESULT_OK) {
+                showToast("unlocked")
+            }
+        }
+
+    private val onBiometricEnrollmentResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
+        showToast("onBiometricEnrollmentResult out")
         if(activityResult.resultCode == Activity.RESULT_OK){
-            showToast("unlocked")
+            showToast("onBiometricEnrollmentResult")
         }
     }
 
     private fun showToast(s: String) {
-        Toast.makeText(requireContext(),s ,Toast.LENGTH_SHORT).show()
+        Toast.makeText(requireContext(), s, Toast.LENGTH_SHORT).show()
     }
 
-    private val setNewPassword = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
-        if(activityResult.resultCode == Activity.RESULT_OK){
-            showToast("Password setup successful")
-        } else {
-            showToast("${activityResult.resultCode} result cancelled")
+    private val setNewPassword =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
+            if (activityResult.resultCode == Activity.RESULT_OK) {
+                showToast("Password setup successful")
+            } else {
+                showToast("${activityResult.resultCode} result cancelled")
+            }
         }
-    }
 
     private val biometricAuthCallback = object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
             super.onAuthenticationError(errorCode, errString)
-            Toast.makeText(requireContext(),"Error $errorCode $errString",Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Error $errorCode $errString", Toast.LENGTH_SHORT)
+                .show()
         }
 
         override fun onAuthenticationFailed() {
             super.onAuthenticationFailed()
-            Toast.makeText(requireContext(),"Failed",Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Failed", Toast.LENGTH_SHORT).show()
         }
 
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
-            Toast.makeText(requireContext(),"Success $result",Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Success $result", Toast.LENGTH_SHORT).show()
         }
 
     }
 
 
-        override fun onCreateView(
+    override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View {
@@ -89,22 +102,36 @@ class LaunchFragment : Fragment() {
                 biometricManager.canAuthenticate(DEVICE_CREDENTIAL) == BIOMETRIC_SUCCESS
             ) {
                 executor = ContextCompat.getMainExecutor(requireContext())
-                biometricPrompt = BiometricPrompt(requireActivity(), executor, biometricAuthCallback)
+                biometricPrompt =
+                    BiometricPrompt(requireActivity(), executor, biometricAuthCallback)
                 biometricPrompt.authenticate(promptInfo)
             } else {
                 log(BIOMETRIC_STRONG)
                 log(BIOMETRIC_WEAK)
                 log(DEVICE_CREDENTIAL)
 
-                val keyguardManager = requireActivity().getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-                val confirmCredentialIntent: Intent? = keyguardManager.createConfirmDeviceCredentialIntent("Enter phone screen lock pattern, PIN, password or fingerprint", "to proceed")
-                confirmCredentialIntent?.let {
-                    unlockResult.launch(confirmCredentialIntent)
-                } ?: run {
-                    val intent = Intent(DevicePolicyManager.ACTION_SET_NEW_PASSWORD)
-                    setNewPassword.launch(intent)
+                val biometricEnrollIntent: Intent = Intent(Settings.ACTION_BIOMETRIC_ENROLL).apply {
+                    putExtra(Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED, BIOMETRIC_STRONG and DEVICE_CREDENTIAL and BIOMETRIC_WEAK)
                 }
 
+                try {
+                    onBiometricEnrollmentResult.launch(biometricEnrollIntent)
+                } catch (e: ActivityNotFoundException){
+                    val keyguardManager =
+                        requireActivity().getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+                    val confirmCredentialIntent: Intent? =
+                        keyguardManager.createConfirmDeviceCredentialIntent("Enter phone screen lock pattern, PIN, password or fingerprint",
+                            "to proceed")
+                    confirmCredentialIntent?.let {
+                        unlockResult.launch(confirmCredentialIntent)
+                    } ?: run {
+
+
+                        val securitySettingsIntent = Intent(Settings.ACTION_SECURITY_SETTINGS)
+                        setNewPassword.launch(securitySettingsIntent)
+
+                    }
+                }
             }
         }
     }
