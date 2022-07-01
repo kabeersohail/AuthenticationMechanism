@@ -3,12 +3,15 @@ package com.example.authenticationmechanism.fragments
 import android.app.Activity
 import android.app.KeyguardManager
 import android.app.admin.DevicePolicyManager
-import android.content.ActivityNotFoundException
-import android.content.Context.KEYGUARD_SERVICE
+import android.content.Context
+import android.content.Context.FINGERPRINT_SERVICE
 import android.content.Intent
+import android.hardware.fingerprint.FingerprintManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
-import android.provider.Settings.ACTION_SECURITY_SETTINGS
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -22,67 +25,72 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.example.authenticationmechanism.databinding.FragmentLaunchBinding
-import java.util.concurrent.Executor
 
 
 class LaunchFragment : Fragment() {
 
     private lateinit var binding: FragmentLaunchBinding
     private lateinit var biometricManager: BiometricManager
-    private lateinit var biometricPrompt: BiometricPrompt
-    private lateinit var executor: Executor
+    private lateinit var keyguardManager: KeyguardManager
 
     private val promptInfo = BiometricPrompt.PromptInfo.Builder()
         .setTitle("Unlock screen")
         .setAllowedAuthenticators(DEVICE_CREDENTIAL or BIOMETRIC_STRONG or BIOMETRIC_WEAK)
         .build()
 
-    private val unlockResult =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
-            if (activityResult.resultCode == Activity.RESULT_OK) {
-                showToast("unlocked")
+    private val onBiometricEnrollmentResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
+        if(biometricManager.canAuthenticate(BIOMETRIC_WEAK) == BIOMETRIC_SUCCESS){
+            Handler(Looper.getMainLooper()).post {
+                authenticate()
             }
-        }
-
-    private val onBiometricEnrollmentResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
-        showToast("onBiometricEnrollmentResult out")
-        if(activityResult.resultCode == Activity.RESULT_OK){
-            showToast("onBiometricEnrollmentResult")
         }
     }
 
-    private fun showToast(s: String) {
-        Toast.makeText(requireContext(), s, Toast.LENGTH_SHORT).show()
+    private val onConfirmDeviceCredential = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
+        if(it.resultCode == Activity.RESULT_OK){
+            showToastAndLog("Success")
+        }
     }
 
-    private val setNewPassword =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
-            if (activityResult.resultCode == Activity.RESULT_OK) {
-                showToast("Password setup successful")
-            } else {
-                showToast("${activityResult.resultCode} result cancelled")
-            }
+    private val onsetNewPassword = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
+        if(it.resultCode == Activity.RESULT_OK){
+            val fingerprintIntent = Intent(Settings.ACTION_FINGERPRINT_ENROLL)
+            onFingerprintEnrollResult.launch(fingerprintIntent)
+        } else if(it.resultCode == Activity.RESULT_CANCELED){
+            showToastAndLog("New password setup cancelled")
         }
+    }
 
-    private val biometricAuthCallback = object : BiometricPrompt.AuthenticationCallback() {
+    private val onFingerprintEnrollResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
+        if(it.resultCode == Activity.RESULT_OK){
+            showToastAndLog("Fingerprint enrolled")
+        } else {
+            showToastAndLog("Fingerprint enroll cancelled")
+        }
+    }
+
+    private fun authenticate() {
+        val executor = ContextCompat.getMainExecutor(requireContext())
+        val biometricPrompt = BiometricPrompt(requireActivity(), executor, biometricAuthCallback)
+        biometricPrompt.authenticate(promptInfo)
+    }
+
+    private val biometricAuthCallback = object : BiometricPrompt.AuthenticationCallback(){
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
             super.onAuthenticationError(errorCode, errString)
-            Toast.makeText(requireContext(), "Error $errorCode $errString", Toast.LENGTH_SHORT)
-                .show()
+            showToastAndLog("$errorCode $errString")
         }
 
         override fun onAuthenticationFailed() {
             super.onAuthenticationFailed()
-            Toast.makeText(requireContext(), "Failed", Toast.LENGTH_SHORT).show()
+            showToastAndLog("Failed")
         }
 
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             super.onAuthenticationSucceeded(result)
-            Toast.makeText(requireContext(), "Success $result", Toast.LENGTH_SHORT).show()
+            showToastAndLog("Auth succeeded ${result.authenticationType}")
         }
-
     }
-
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -95,49 +103,70 @@ class LaunchFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.authenticate.setOnClickListener {
-            biometricManager = BiometricManager.from(requireContext())
-            if (biometricManager.canAuthenticate(BIOMETRIC_STRONG) == BIOMETRIC_SUCCESS ||
-                biometricManager.canAuthenticate(BIOMETRIC_WEAK) == BIOMETRIC_SUCCESS ||
-                biometricManager.canAuthenticate(DEVICE_CREDENTIAL) == BIOMETRIC_SUCCESS
-            ) {
-                executor = ContextCompat.getMainExecutor(requireContext())
-                biometricPrompt =
-                    BiometricPrompt(requireActivity(), executor, biometricAuthCallback)
-                biometricPrompt.authenticate(promptInfo)
-            } else {
-                log(BIOMETRIC_STRONG)
-                log(BIOMETRIC_WEAK)
-                log(DEVICE_CREDENTIAL)
+        biometricManager = BiometricManager.from(requireContext())
+        keyguardManager = requireActivity().getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
-                val biometricEnrollIntent: Intent = Intent(Settings.ACTION_BIOMETRIC_ENROLL).apply {
-                    putExtra(Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED, BIOMETRIC_STRONG and DEVICE_CREDENTIAL and BIOMETRIC_WEAK)
+        binding.authenticate.setOnClickListener {
+
+            val result = biometricManager.canAuthenticate(BIOMETRIC_WEAK)
+
+            when(result){
+                BIOMETRIC_SUCCESS -> authenticate()
+
+                BiometricManager.BIOMETRIC_STATUS_UNKNOWN -> {
+
+                    if(Build.VERSION.SDK_INT <= 28 ){
+                        val fingerprintManager: FingerprintManager = requireActivity().getSystemService(FINGERPRINT_SERVICE) as FingerprintManager
+                        if(!fingerprintManager.hasEnrolledFingerprints()){
+                            val fingerprintIntent = Intent(Settings.ACTION_FINGERPRINT_ENROLL)
+                            onFingerprintEnrollResult.launch(fingerprintIntent)
+                        } else {
+                            authenticate()
+                        }
+                    } else {
+                        authenticate()
+                    }
+
+
                 }
 
-                try {
-                    onBiometricEnrollmentResult.launch(biometricEnrollIntent)
-                } catch (e: ActivityNotFoundException){
-                    val keyguardManager =
-                        requireActivity().getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-                    val confirmCredentialIntent: Intent? =
-                        keyguardManager.createConfirmDeviceCredentialIntent("Enter phone screen lock pattern, PIN, password or fingerprint",
-                            "to proceed")
-                    confirmCredentialIntent?.let {
-                        unlockResult.launch(confirmCredentialIntent)
-                    } ?: run {
+                BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> showToastAndLog("Error unsupported")
 
+                BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> showToastAndLog("Error hardware unavailable")
 
-                        val securitySettingsIntent = Intent(Settings.ACTION_SECURITY_SETTINGS)
-                        setNewPassword.launch(securitySettingsIntent)
+                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
 
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        val biometricIntent = Intent(Settings.ACTION_BIOMETRIC_ENROLL)
+                        onBiometricEnrollmentResult.launch(biometricIntent)
+                    } else if(Build.VERSION.SDK_INT >= 28){
+
+                        // due to issue in Note 5 Pro -> First set new password, then set fingerprint enroll
+
+                        val setNewPassword = Intent(DevicePolicyManager.ACTION_SET_NEW_PASSWORD)
+                        onsetNewPassword.launch(setNewPassword)
+                    }
+                    else if(Build.VERSION.SDK_INT < 28 ){
+                        if(keyguardManager.isDeviceSecure){
+                            val confirmDeviceCredentialIntent: Intent = keyguardManager.createConfirmDeviceCredentialIntent("Title", "description")
+                            onConfirmDeviceCredential.launch(confirmDeviceCredentialIntent)
+                        }
+                    } else {
+                        val setNewPassword = Intent(DevicePolicyManager.ACTION_SET_NEW_PASSWORD)
+                        onsetNewPassword.launch(setNewPassword)
                     }
                 }
+                BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> showToastAndLog("No hardware")
+
+                BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> showToastAndLog("Security update required")
+
             }
         }
     }
 
-    private fun log(x: Int) {
-        Log.d("SOHAIL", biometricManager.canAuthenticate(x).toString())
+    private fun showToastAndLog(message: String){
+        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+        Log.d("SOHAIL",message)
     }
 
 
