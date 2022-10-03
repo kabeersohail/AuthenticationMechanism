@@ -53,7 +53,7 @@ class LaunchFragment : Fragment() {
     }
 
     private val onsetNewPassword = registerForActivityResult(ActivityResultContracts.StartActivityForResult()){
-        if(it.resultCode == Activity.RESULT_OK){
+        if(it.resultCode == Activity.RESULT_OK || it.resultCode == Activity.RESULT_FIRST_USER){
             val fingerprintIntent = Intent(Settings.ACTION_FINGERPRINT_ENROLL)
             onFingerprintEnrollResult.launch(fingerprintIntent)
         } else if(it.resultCode == Activity.RESULT_CANCELED){
@@ -117,6 +117,7 @@ class LaunchFragment : Fragment() {
 
                     if(Build.VERSION.SDK_INT <= 28 ){
                         val fingerprintManager: FingerprintManager = requireActivity().getSystemService(FINGERPRINT_SERVICE) as FingerprintManager
+                        fingerprintManager.authenticate()
                         if(!fingerprintManager.hasEnrolledFingerprints()){
                             val fingerprintIntent = Intent(Settings.ACTION_FINGERPRINT_ENROLL)
                             onFingerprintEnrollResult.launch(fingerprintIntent)
@@ -150,6 +151,12 @@ class LaunchFragment : Fragment() {
                         if(keyguardManager.isDeviceSecure){
                             val confirmDeviceCredentialIntent: Intent = keyguardManager.createConfirmDeviceCredentialIntent("Title", "description")
                             onConfirmDeviceCredential.launch(confirmDeviceCredentialIntent)
+                        } else {
+
+                            val setNewPassword = Intent(DevicePolicyManager.ACTION_SET_NEW_PASSWORD)
+                            onsetNewPassword.launch(setNewPassword)
+
+                            showToastAndLog("non enrolled")
                         }
                     } else {
                         val setNewPassword = Intent(DevicePolicyManager.ACTION_SET_NEW_PASSWORD)
